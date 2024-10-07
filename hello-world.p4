@@ -25,27 +25,8 @@
 #include <tna.p4>
 #endif
 
-#define CMS_ENTRIES 65536
-#define CMS_BIT_WIDTH 32
-#define PACKET_THRESHOLD 2
-#define DELAY_THRESHOLD 100000 // delay in ns
-
-typedef bit<32> time_t;
-
 struct metadata_t {
-  bit<16> flowInex_one;
-  bit<16> flowInex_two;
-  bit<32> count_one;
-  bit<32> count_two;
-  bit<32> count_min;
-  bit<18> cur_time;
-  bit<1> window_flag;
-  bit<32> delay_threshold;
 }
-
-#include "common/headers.p4"
-#include "common/util.p4"
-
 // ---------------------------------------------------------------------------
 // Ingress parser
 // ---------------------------------------------------------------------------
@@ -65,9 +46,8 @@ SwitchIngressParser(packet_in pkt, out header_t hdr, out metadata_t ig_md,
     transition select(hdr.ethernet.ether_type) {
     ETHERTYPE_IPV4:
       parse_ipv4;
-    // ETHERTYPE_VLAN : parse_vlan;
     default:
-      accept;
+      reject;
     }
   }
 
