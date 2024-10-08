@@ -32,7 +32,8 @@ struct metadata_t {
 } // ---------------------------------------------------------------------------
   // Ingress parser
   // ---------------------------------------------------------------------------
-parser SwitchIngressParser(packet_in pkt, out header_t hdr, out metadata_t ig_md,
+parser
+SwitchIngressParser(packet_in pkt, out header_t hdr, out metadata_t ig_md,
                     out ingress_intrinsic_metadata_t ig_intr_md) {
 
   TofinoIngressParser() tofino_parser;
@@ -80,75 +81,48 @@ parser SwitchIngressParser(packet_in pkt, out header_t hdr, out metadata_t ig_md
 control SwitchIngressDeparser(
     packet_out pkt, inout header_t hdr, in metadata_t ig_md,
     in ingress_intrinsic_metadata_for_deparser_t ig_intr_dprsr_md) {
-  apply { 
+  apply {
     pkt.emit(hdr);
   }
 }
 
-control SwitchIngress(
-    inout header_t hdr,
-    inout metadata_t ig_md,
-    in ingress_intrinsic_metadata_t ig_intr_md,
-    in ingress_intrinsic_metadata_from_parser_t ig_intr_prsr_md,
-    inout ingress_intrinsic_metadata_for_deparser_t ig_intr_dprsr_md,
-    inout ingress_intrinsic_metadata_for_tm_t ig_intr_tm_md) {
-
-  Alpm(number_partitions = 1024, subtrees_per_partition = 2) algo_lpm;
-  bit<10> vrf;
+control
+SwitchIngress(inout header_t hdr, inout metadata_t ig_md,
+              in ingress_intrinsic_metadata_t ig_intr_md,
+              in ingress_intrinsic_metadata_from_parser_t ig_intr_prsr_md,
+              inout ingress_intrinsic_metadata_for_deparser_t ig_intr_dprsr_md,
+              inout ingress_intrinsic_metadata_for_tm_t ig_intr_tm_md) {
 
   action hit(PortId_t port) {
-    ig_intr_tm_md.ucast_egress_port = port; 
+    ig_intr_tm_md.ucast_egress_port = port;
+    hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+    ig_intr_tm_md.bypass_egress = 1w1;
+    ig_intr_dprsr_md.drop_ctl = 0x0;
   }
 
   action miss() {
     ig_intr_dprsr_md.drop_ctl = 0x1; // Drop packet
   }
   table forward {
-    key = {
-      vrf : exact;
-      hdr.ipv4.dst_addr : lpm;
-    }
-    actions = { 
-      hit;
-      miss;
-    }
-
-    const default_action = miss;
-    size = 1024;
-  }
-
-  action route(mac_addr_t srcMac, mac_addr_t dstMac, PortId_t dst_port) {
-    ig_intr_tm_md.ucast_egress_port = dst_port;
-    hdr.ethernet.dst_addr = dstMac;
-    hdr.ethernet.src_addr = srcMac;
-    ig_intr_dprsr_md.drop_ctl = 0x0;
-  }
-  table alpm_forward {
     key = { 
-      vrf : exact;
-      hdr.ipv4.dst_addr : lpm;
-    }
-    actions = { 
-      route;
-    }
-
-    size = 1024;
-    alpm = algo_lpm;
+      hdr.ipv4.dst_addr : exact;
   }
-  apply {
-    vrf = 10w0;
-    forward.apply();
-    alpm_forward.apply();
+  actions = { 
+    hit;
+    miss;
+  }
 
+  const default_action = miss;
+  size = 1024;
+ }
+
+  apply { 
+    forward.apply(); 
     ig_intr_tm_md.bypass_egress = 1w1;
   }
 }
 
-Pipeline(SwitchIngressParser(),
-         SwitchIngress(),
-         SwitchIngressDeparser(),
-         EmptyEgressParser(),
-         EmptyEgress(),
-         EmptyEgressDeparser()) pipe;
+Pipeline(SwitchIngressParser(), SwitchIngress(), SwitchIngressDeparser(),
+         EmptyEgressParser(), EmptyEgress(), EmptyEgressDeparser()) pipe;
 
 Switch(pipe) main;
